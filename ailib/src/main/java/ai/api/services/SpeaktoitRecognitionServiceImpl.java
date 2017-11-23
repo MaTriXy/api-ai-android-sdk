@@ -1,25 +1,20 @@
-package ai.api.services;
+/**
+ * Copyright 2017 Google Inc. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
-/***********************************************************************************************************************
- *
- * API.AI Android SDK - client-side libraries for API.AI
- * =================================================
- *
- * Copyright (C) 2014 by Speaktoit, Inc. (https://www.speaktoit.com)
- * https://www.api.ai
- *
- ***********************************************************************************************************************
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
- *
- ***********************************************************************************************************************/
+package ai.api.services;
 
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
@@ -33,19 +28,29 @@ import android.util.Log;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import ai.api.AIConfiguration;
-import ai.api.AIService;
 import ai.api.AIServiceException;
 import ai.api.RequestExtras;
+import ai.api.android.AIConfiguration;
+import ai.api.android.AIService;
 import ai.api.model.AIContext;
 import ai.api.model.AIError;
 import ai.api.model.AIResponse;
 import ai.api.util.VoiceActivityDetector;
 
+import static ai.api.util.VoiceActivityDetector.FRAME_SIZE_IN_BYTES;
+import static ai.api.util.VoiceActivityDetector.NOISE_BYTES;
+
+/*
+* @deprecated Use GoogleRecognitionServiceImpl
+*/
+@Deprecated
 public class SpeaktoitRecognitionServiceImpl extends AIService implements
         VoiceActivityDetector.SpeechEventsListener,
         MediaPlayer.OnCompletionListener,
@@ -109,6 +114,13 @@ public class SpeaktoitRecognitionServiceImpl extends AIService implements
     public void startListening(final RequestExtras requestExtras) {
         synchronized (recognizerLock) {
             if (!isRecording) {
+
+                if (!checkPermissions()) {
+                    final AIError aiError = new AIError("RECORD_AUDIO permission is denied. Please request permission from user.");
+                    onError(aiError);
+                    return;
+                }
+
                 isRecording = true;
                 extras = requestExtras;
 
@@ -238,17 +250,22 @@ public class SpeaktoitRecognitionServiceImpl extends AIService implements
         });
     }
 
-    @Override
-    public void onRmsChanged(double energy) {
-        onAudioLevelChanged((float) energy);
-    }
-
     private class RecorderStream extends InputStream {
+
+        @SuppressWarnings("MagicNumber")
+        private final float dbLevel = (float) Math.pow(10.0, -1.0 / 20.0);
 
         private final AudioRecord audioRecord;
 
         private byte[] bytes;
         private final Object bytesLock = new Object();
+
+        int offset = 0;
+        int max = 0;
+        int min = 0;
+        float alignment = 0;
+        float count = 1;
+        int extent;
 
         private RecorderStream(final AudioRecord audioRecord) {
             this.audioRecord = audioRecord;
@@ -266,6 +283,9 @@ public class SpeaktoitRecognitionServiceImpl extends AIService implements
             final int bytesRead = audioRecord.read(buffer, byteOffset, byteCount);
             if (bytesRead > 0) {
                 synchronized (bytesLock) {
+                    if (config.isNormalizeInputSound())
+                        normalize(buffer, bytesRead);
+
                     byte[] temp = bytes;
                     int tempLength = temp != null ? temp.length : 0;
                     bytes = new byte[tempLength + bytesRead];
@@ -274,20 +294,41 @@ public class SpeaktoitRecognitionServiceImpl extends AIService implements
                     }
                     System.arraycopy(buffer, 0, bytes, tempLength, bytesRead);
 
-                    final int frameSize = VoiceActivityDetector.FRAME_SIZE_IN_BYTES;
-                    while (bytes.length >= frameSize) {
-                        final byte[] b = new byte[frameSize];
-                        System.arraycopy(bytes, 0, b, 0, frameSize);
-                        vad.processBuffer(b, frameSize);
+                    while (bytes.length >= FRAME_SIZE_IN_BYTES) {
+                        final byte[] b = new byte[FRAME_SIZE_IN_BYTES];
+                        System.arraycopy(bytes, 0, b, 0, FRAME_SIZE_IN_BYTES);
+                        vad.processBuffer(b, FRAME_SIZE_IN_BYTES);
 
                         temp = bytes;
-                        final int newLength = temp.length - frameSize;
+                        final int newLength = temp.length - FRAME_SIZE_IN_BYTES;
                         bytes = new byte[newLength];
-                        System.arraycopy(temp, frameSize, bytes, 0, newLength);
+                        System.arraycopy(temp, FRAME_SIZE_IN_BYTES, bytes, 0, newLength);
                     }
+                    onAudioLevelChanged((float) vad.calculateRms());
                 }
             }
             return bytesRead != 0 ? bytesRead : AudioRecord.ERROR_INVALID_OPERATION;
+        }
+
+        private void normalize(@NonNull final byte[] buffer, final int bytesRead) {
+            final int remainOffset = NOISE_BYTES - offset;
+            if (bytesRead >= remainOffset) {
+                final ByteBuffer byteBuffer = ByteBuffer.wrap(buffer, remainOffset, bytesRead - remainOffset).order(ByteOrder.LITTLE_ENDIAN);
+                final ShortBuffer shorts = byteBuffer.asShortBuffer();
+                for (int i = 0; i < shorts.limit(); i++) {
+                    final short sample = shorts.get(i);
+                    max = Math.max(max, sample);
+                    min = Math.min(min, sample);
+                    alignment = (count - 1) / count * alignment + sample / count;
+                    count++;
+                }
+                extent = Math.max(Math.abs(max), Math.abs(min));
+                final float factor = dbLevel * Short.MAX_VALUE / extent;
+                for (int i = 0; i < shorts.limit(); i++) {
+                    byteBuffer.putShort((short) ((shorts.get(i) - alignment) * factor));
+                }
+            }
+            offset += Math.min(bytesRead, remainOffset);
         }
     }
 

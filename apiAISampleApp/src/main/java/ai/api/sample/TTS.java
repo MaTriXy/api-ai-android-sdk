@@ -14,25 +14,27 @@
  * limitations under the License.
  */
 
-package ai.api;
+package ai.api.sample;
 
-/**
- * Use this class instead of AIListener if you don't want to process all recognition events. Only onResult and onError required.
- */
-public abstract class DefaultAIListener implements AIListener {
+import android.content.Context;
+import android.speech.tts.TextToSpeech;
 
-    @Override
-    public void onAudioLevel(final float level) {
+public class TTS {
 
+    private static TextToSpeech textToSpeech;
+
+    public static void init(final Context context) {
+        if (textToSpeech == null) {
+            textToSpeech = new TextToSpeech(context, new TextToSpeech.OnInitListener() {
+                @Override
+                public void onInit(int i) {
+
+                }
+            });
+        }
     }
 
-    @Override
-    public void onListeningStarted() {
-
-    }
-
-    @Override
-    public void onListeningFinished() {
-
+    public static void speak(final String text) {
+        textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null);
     }
 }

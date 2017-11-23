@@ -12,7 +12,8 @@ Also SDK library must be in your app dependencies (see **build.gradle**)
 ```
 dependencies {
     // some another dependencies...
-    compile 'ai.api:sdk:1.6.6@aar'
+    compile 'ai.api:libai:1.4.8'
+    compile 'ai.api:sdk:2.0.5@aar'
     // api.ai SDK dependencies
     compile 'com.android.support:appcompat-v7:21.0.3'
     compile 'com.google.code.gson:gson:2.3'
@@ -41,7 +42,7 @@ Use this type of integration if you want quickly integrate natural language proc
 2. Add the following code to your activity's `onCreate` function
 
     ```java
-    final AIConfiguration config = new AIConfiguration("YOUR_ACCESS_TOKEN", "YOUR_SUBSCRIPTION_KEY", 
+    final AIConfiguration config = new AIConfiguration("YOUR_ACCESS_TOKEN",  
                     AIConfiguration.SupportedLanguages.English,
                     AIConfiguration.RecognitionEngine.System);
 
@@ -73,7 +74,7 @@ Use this type of integration if you want quickly integrate natural language proc
     });
     ```
 
-3. Replace "YOUR_ACCESS_TOKEN" and "YOUR_SUBSCRIPTION_KEY" with keys from your development console on the [API.AI](http://www.api.ai) site.
+3. Replace "YOUR_ACCESS_TOKEN" with key from your development console on the [API.AI](http://www.api.ai) site.
 4. Write your custom code instead of `// process response here` and `//process error here` to process success and error responses from the api.ai.
 
 # Integration with AIService
@@ -93,11 +94,10 @@ Use the following steps:
     private AIService aiService;
     ```
     
-3. In the OnCreate method, add the following line to set up the configuration to use Google speech recognition. Replace CLIENT_ACCESS_TOKEN and SUBSCRIPTION KEY with your client access token and subscription key.
+3. In the OnCreate method, add the following line to set up the configuration to use Google speech recognition. Replace CLIENT_ACCESS_TOKEN with your client access token.
     
     ```java
      final AIConfiguration config = new AIConfiguration("CLIENT_ACCESS_TOKEN",
-            "SUBSCRIPTION_KEY", 
             AIConfiguration.SupportedLanguages.English,
             AIConfiguration.RecognitionEngine.System);
     ```
@@ -183,7 +183,6 @@ AIDialog is simple and ready to use dialog for making voice requests. All you ne
 
 ```java
  final AIConfiguration config = new AIConfiguration("CLIENT_ACCESS_TOKEN",
-        "SUBSCRIPTION_KEY",
         AIConfiguration.SupportedLanguages.English,
         AIConfiguration.RecognitionEngine.System);
 ```

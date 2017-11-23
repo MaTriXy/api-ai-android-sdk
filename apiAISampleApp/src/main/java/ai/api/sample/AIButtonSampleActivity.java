@@ -1,28 +1,23 @@
+/**
+ * Copyright 2017 Google Inc. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package ai.api.sample;
 
-/***********************************************************************************************************************
- *
- * API.AI Android SDK -  API.AI libraries usage example
- * =================================================
- *
- * Copyright (C) 2015 by Speaktoit, Inc. (https://www.speaktoit.com)
- * https://www.api.ai
- *
- ***********************************************************************************************************************
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
- *
- ***********************************************************************************************************************/
-
+import android.content.Intent;
 import android.os.Bundle;
-import android.support.v7.app.ActionBarActivity;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -34,8 +29,8 @@ import com.google.gson.JsonElement;
 import java.util.HashMap;
 import java.util.Map;
 
-import ai.api.AIConfiguration;
-import ai.api.GsonFactory;
+import ai.api.android.AIConfiguration;
+import ai.api.android.GsonFactory;
 import ai.api.model.AIError;
 import ai.api.model.AIResponse;
 import ai.api.model.Metadata;
@@ -61,7 +56,7 @@ public class AIButtonSampleActivity extends BaseActivity implements AIButton.AIB
         aiButton = (AIButton) findViewById(R.id.micButton);
 
         final AIConfiguration config = new AIConfiguration(Config.ACCESS_TOKEN,
-                Config.SUBSCRIPTION_KEY, AIConfiguration.SupportedLanguages.English,
+                AIConfiguration.SupportedLanguages.English,
                 AIConfiguration.RecognitionEngine.System);
 
         config.setRecognizerStartSound(getResources().openRawResourceFd(R.raw.test_start));
@@ -101,6 +96,7 @@ public class AIButtonSampleActivity extends BaseActivity implements AIButton.AIB
 
         //noinspection SimplifiableIfStatement
         if (id == R.id.action_settings) {
+            startActivity(AISettingsActivity.class);
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -126,7 +122,9 @@ public class AIButtonSampleActivity extends BaseActivity implements AIButton.AIB
                 Log.i(TAG, "Resolved query: " + result.getResolvedQuery());
 
                 Log.i(TAG, "Action: " + result.getAction());
-                Log.i(TAG, "Speech: " + result.getFulfillment().getSpeech());
+                final String speech = result.getFulfillment().getSpeech();
+                Log.i(TAG, "Speech: " + speech);
+                TTS.speak(speech);
 
                 final Metadata metadata = result.getMetadata();
                 if (metadata != null) {
@@ -166,5 +164,10 @@ public class AIButtonSampleActivity extends BaseActivity implements AIButton.AIB
                 resultTextView.setText("");
             }
         });
+    }
+
+    private void startActivity(Class<?> cls) {
+        final Intent intent = new Intent(this, cls);
+        startActivity(intent);
     }
 }

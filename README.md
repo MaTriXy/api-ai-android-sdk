@@ -1,7 +1,7 @@
 Android SDK for api.ai
 ==================
 
-[![Release status](https://travis-ci.org/api-ai/api-ai-android-sdk.svg?branch=master)](https://travis-ci.org/api-ai/api-ai-android-sdk) [![Maven Central](https://maven-badges.herokuapp.com/maven-central/ai.api/sdk/badge.svg)](https://maven-badges.herokuapp.com/maven-central/ai.api/sdk)
+[![Release status](https://travis-ci.org/api-ai/apiai-android-client.svg?branch=master)](https://travis-ci.org/api-ai/apiai-android-client) [![Maven Central](https://maven-badges.herokuapp.com/maven-central/ai.api/sdk/badge.svg)](https://maven-badges.herokuapp.com/maven-central/ai.api/sdk)
 
 The API.AI Android SDK makes it easy to integrate speech recognition with [API.AI](http://www.api.ai) natural language processing API on Android devices. API.AI allows using voice commands and integration with dialog scenarios defined for a particular agent in API.AI.
 
@@ -13,16 +13,14 @@ Two permissions are required to use the API.AI Android SDK:
 Add this dependencies to your project to use SDK
 
 ```
-compile 'ai.api:sdk:1.6.7@aar'
+compile 'ai.api:sdk:2.0.7@aar'
 // api.ai SDK dependencies
-compile 'com.android.support:appcompat-v7:22.0.0'
-compile 'com.google.code.gson:gson:2.3'
-compile 'commons-io:commons-io:2.4'
+compile 'com.android.support:appcompat-v7:23.2.1'
 ```
 
 Currently, speech recognition is performed using Google's Android SDK, either on the client device or in the cloud. Recognized text is passed to the API.AI through HTTP requests. Also you can try Speaktoit recognition engine (Use [AIConfiguration.RecognitionEngine.Speaktoit](https://github.com/api-ai/api-ai-android-sdk/blob/master/ailib/src/main/java/ai/api/AIConfiguration.java#L37)).
 
-Authentication is accomplished through setting the client access token and subscription key when initializing an [AIConfiguration](https://github.com/api-ai/api-ai-android-sdk/blob/master/ailib/src/main/java/ai/api/AIConfiguration.java) object. The client access token specifies which agent will be used for natural language processing, subscription key used for managing subscription info.
+Authentication is accomplished through setting the client access token when initializing an [AIConfiguration](https://github.com/api-ai/api-ai-android-sdk/blob/master/ailib/src/main/java/ai/api/android/AIConfiguration.java) object. The client access token specifies which agent will be used for natural language processing.
 
 **Note:** The API.AI Android SDK only makes query requests, and cannot be used to manage entities and intents. Instead, use the API.AI user interface or REST API to  create, retrieve, update, and delete entities and intents.
 
@@ -45,7 +43,7 @@ The API.AI Android SDK comes with a simple sample that illustrates how voice com
 3. Import the **api-ai-android-master** directory.
 4. Open the SDK Manager and be sure that you have installed Android Build Tools 19.1.
 5. In the Project browser, open **apiAISampleApp/src/main/java/ai.api.sample/Config**.
-6. Towards the top of the file, you will see a declaration of a static final string called *ACCESS_TOKEN*. Set its value to be the client access token of your agent. Similarly, set the variable named *SUBSCRIPTION_KEY* to your subscription key.
+6. Towards the top of the file, you will see a declaration of a static final string called *ACCESS_TOKEN*. Set its value to be the client access token of your agent.
 7. Attach an Android device, or have the emulator set up with an emulated device.
 8. From the **Run** menu, choose **Debug** (or click the Debug symbol). Choose your device.
 9. You should see an app running with three buttons: **Listen**, **StopListen**, and **Cancel**.
@@ -64,11 +62,7 @@ To implement speech recognition and natural language processing features in your
 1. Add a dependency to your *build.gradle* file. Add the following line to your **build.gradle** file. (In the sample app, the **apiAISampleApp/build.gradle** is an example of how to do this.)
 
     ```
-    compile 'ai.api:sdk:1.6.7@aar'
-    // api.ai SDK dependencies
-    compile 'com.android.support:appcompat-v7:22.0.0'
-    compile 'com.google.code.gson:gson:2.3'
-    compile 'commons-io:commons-io:2.4'
+    compile 'ai.api:sdk:2.0.7@aar'
     ```
     
 2. (Not recommended) Download the library source code from github, and attach it to your project.
@@ -83,7 +77,16 @@ Once you've added the SDK library, follow these steps:
     * **android.permission.INTERNET**
     * **android.permission.RECORD_AUDIO**
     
-2. Create a class that implements the AIListener interface. This class will process responses from API.AI.
+2. Create a class that implements the AIListener interface. This class will process responses from API.AI. (AIRequest, AIResponse are not a part of "ai.api:sdk:2.0.7@aar", they are a part of "ai.api:libai:1.6.12", if you haven't added it until now add 
+```
+
+    compile 'ai.api:libai:1.6.12'
+```
+
+to yor app level gradle file.
+
+
+)
 
     ```java
     public interface AIListener {
@@ -100,7 +103,6 @@ Once you've added the SDK library, follow these steps:
 
     ```java
     final AIConfiguration config = new AIConfiguration("CLIENT_ACCESS_TOKEN",
-                "SUBSCRIPTION_KEY",
                 AIConfiguration.SupportedLanguages.English,
                 AIConfiguration.RecognitionEngine.System);
     ```
@@ -157,9 +159,10 @@ This section assumes that you have performed your own speech recognition and tha
 5. Send the request to the API.AI service using the method **aiDataService.request(aiRequest)**.
 6. Process the response.
 
-The following example code sends a query with the text "Hello":
+The following example code sends a query with the text "Hello".
+First, it initialize `aiDataService` and `aiRequest` instances
 ```java
-final AIConfiguration config = new AIConfiguration(ACCESS_TOKEN, SUBSCRIPTION_KEY,
+final AIConfiguration config = new AIConfiguration(ACCESS_TOKEN, 
     AIConfiguration.SupportedLanguages.English, 
     AIConfiguration.RecognitionEngine.System);
 
@@ -167,15 +170,94 @@ final AIDataService aiDataService = new AIDataService(config);
 
 final AIRequest aiRequest = new AIRequest();
 aiRequest.setQuery("Hello");
+```
 
-try {
-    final AIResponse aiResponse = aiDataService.request(aiRequest);
-    // process response object here...
+Then it calls the `aiDataService.request` method. Please note, that you must call `aiDataService.request` method from background thread, using `AsyncTask` class, for example.
+```java
+new AsyncTask<AIRequest, Void, AIResponse>() {
+    @Override
+    protected AIResponse doInBackground(AIRequest... requests) {
+        final AIRequest request = requests[0];
+        try {
+            final AIResponse response = aiDataService.request(aiRequest);
+            return response;
+        } catch (AIServiceException e) {
+        }
+        return null;
+    }
+    @Override
+    protected void onPostExecute(AIResponse aiResponse) {
+        if (aiResponse != null) {
+            // process aiResponse here
+        }
+    }
+}.execute(aiRequest);
+```
 
-} catch (final AIServiceException e) {
-    e.printStackTrace();
+## Getting results
+After implementing AIListener interface, you can get the response from api.ai inside your listener like this:
+
+```java
+public void onResult(final AIResponse response) {
+   // Use the response object to get all the results
 }
 ```
+
+Here is how to get different part of the result object:
+
+* Get the status
+
+   ```java
+   final Status status = response.getStatus();
+   Log.i(TAG, "Status code: " + status.getCode());
+   Log.i(TAG, "Status type: " + status.getErrorType());
+   ```
+   
+* Get resolved query
+
+   ```java
+   final Result result = response.getResult();
+   Log.i(TAG, "Resolved query: " + result.getResolvedQuery());
+   ```
+   
+* Get action
+
+   ```java
+   final Result result = response.getResult();
+   Log.i(TAG, "Action: " + result.getAction());
+   ```
+   
+* Get speech
+
+   ```java
+   final Result result = response.getResult();
+   final String speech = result.getFulfillment().getSpeech();
+   Log.i(TAG, "Speech: " + speech);
+   ```
+   
+* Get metadata
+
+   ```java
+   final Result result = response.getResult();
+   final Metadata metadata = result.getMetadata();
+   if (metadata != null) {
+     Log.i(TAG, "Intent id: " + metadata.getIntentId());
+     Log.i(TAG, "Intent name: " + metadata.getIntentName());
+   }
+   ```
+
+* Get parameters
+
+   ```java
+   final Result result = response.getResult();
+   final HashMap<String, JsonElement> params = result.getParameters();
+   if (params != null && !params.isEmpty()) {
+     Log.i(TAG, "Parameters: ");
+     for (final Map.Entry<String, JsonElement> entry : params.entrySet()) {
+         Log.i(TAG, String.format("%s: %s", entry.getKey(), entry.getValue().toString()));
+     }
+   }
+   ```
     
 # <a name="tutorial" />Tutorial
 
@@ -207,15 +289,15 @@ Next you will integrate with the SDK to be able to make calls. Follow these step
     
 3. Save **AndroidManifest.xml**.
 4. Next, you need to add a new dependency for the AI.API library. Right click on your module name (it should be _app_) in the Project Navigator and select **Open Module Settings**. Click on the **Dependencies** tab. Click on the **+** sign on the bottom left side and select **Library dependency**. <br/>![Add dependency](docs/images/Dependencies.png)
-5. In the opened dialog search **ai.api**, choose **ai.api:sdk:1.6.7** item and append `@aar` to the end of library name (see image) then click OK.<br/> ![Add dependency](docs/images/Dependencies2.png)
+5. In the opened dialog search **ai.api**, choose **ai.api:sdk:2.0.5** item and append `@aar` to the end of library name (see image) then click OK.<br/> ![Add dependency](docs/images/Dependencies2.png)
     * Also you need to add dependencies of the SDK library : *com.android.support:appcompat-v7*, *com.google.code.gson:gson*, *commons-io:commons-io*. Add them in the same way.
 6. Open **MainActivity.java** under **app/src/main/java/com.example.yourAppName.app**, or whatever your package name is.
 7. Expand the import section and add the following lines to import the necessary API.AI classes:
     
     ```java
-    import ai.api.AIConfiguration;
     import ai.api.AIListener;
-    import ai.api.AIService;
+    import ai.api.android.AIConfiguration;
+    import ai.api.android.AIService;
     import ai.api.model.AIError;
     import ai.api.model.AIResponse;
     import ai.api.model.Result;
@@ -264,11 +346,11 @@ Next you will integrate with the SDK to be able to make calls. Follow these step
     private AIService aiService;
     ```
     
-3. In the OnCreate method, add the following line to set up the configuration to use system speech recognition. Replace CLIENT_ACCESS_TOKEN and SUBSCRIPTION KEY with your client access token and subscription key. 
+3. In the OnCreate method, add the following line to set up the configuration to use system speech recognition. Replace CLIENT_ACCESS_TOKEN with your client access token. 
     
     ```java
      final AIConfiguration config = new AIConfiguration("CLIENT_ACCESS_TOKEN",
-            "SUBSCRIPTION_KEY", AIConfiguration.SupportedLanguages.English,
+            AIConfiguration.SupportedLanguages.English,
             AIConfiguration.RecognitionEngine.System);
     ```
     
@@ -380,6 +462,12 @@ RequestExtras requestExtras = new RequestExtras(null, entities);
 aiService.startListening(requestExtras);
 ```
 
+Also you can upload user entities with separate method
+
+```java
+aiService.uploadUserEntities(entities);
+```
+
 ## Bluetooth support
 
 Do these steps to make SDK work with Bluetooth devices:
@@ -489,3 +577,14 @@ A complete example can be found in the [Sample Application](https://github.com/a
 # <a name="troubleshooting" />Troubleshooting
 
 * If you get an error when trying to install app that says "INSTALL_FAILED_OLDER_SDK", then check you have Android SDK 19 and build tools 19.1 installed.
+
+## How to make contributions?
+Please read and follow the steps in the [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+See [LICENSE](LICENSE).
+
+## Terms
+Your use of this sample is subject to, and by using or downloading the sample files you agree to comply with, the [Google APIs Terms of Service](https://developers.google.com/terms/).
+
+This is not an official Google product.

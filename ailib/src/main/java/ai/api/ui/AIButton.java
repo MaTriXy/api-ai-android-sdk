@@ -1,25 +1,20 @@
-package ai.api.ui;
+/**
+ * Copyright 2017 Google Inc. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
-/***********************************************************************************************************************
- *
- * API.AI Android SDK - client-side libraries for API.AI
- * =================================================
- *
- * Copyright (C) 2015 by Speaktoit, Inc. (https://www.speaktoit.com)
- * https://www.api.ai
- *
- ***********************************************************************************************************************
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
- *
- ***********************************************************************************************************************/
+package ai.api.ui;
 
 import android.content.Context;
 import android.content.res.Resources;
@@ -35,15 +30,14 @@ import android.view.animation.LinearInterpolator;
 import android.view.animation.Transformation;
 
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-import ai.api.AIConfiguration;
+import ai.api.android.AIConfiguration;
 import ai.api.AIListener;
-import ai.api.AIService;
+import ai.api.android.AIService;
 import ai.api.AIServiceException;
 import ai.api.PartialResultsListener;
 import ai.api.R;
+import ai.api.RequestExtras;
 import ai.api.model.AIError;
 import ai.api.model.AIRequest;
 import ai.api.model.AIResponse;
@@ -61,6 +55,7 @@ public class AIButton extends SoundLevelButton implements AIListener {
 
     protected static final int[] STATE_WAITING = {R.attr.state_waiting};
     protected static final int[] STATE_SPEAKING = {R.attr.state_speaking};
+    protected static final int[] STATE_INITIALIZING_TTS = {R.attr.state_initializing_tts};
 
     private float animationStage = 0;
     private boolean animationSecondPhase = false;
@@ -70,11 +65,8 @@ public class AIButton extends SoundLevelButton implements AIListener {
     private AIButtonListener resultsListener;
     private PartialResultsListener partialResultsListener;
 
-    private final ExecutorService eventsExecutor = Executors.newSingleThreadExecutor();
-
     @Override
     public void onResult(final AIResponse result) {
-
         post(new Runnable() {
             @Override
             public void run() {
@@ -144,7 +136,8 @@ public class AIButton extends SoundLevelButton implements AIListener {
         normal,
         busy, // transitive state with disabled mic
         listening, // state with sound indicator
-        speaking;
+        speaking,
+        initializingTts;
 
         public static MicState fromAttrs(final TypedArray viewAttrs) {
             if (viewAttrs.getBoolean(R.styleable.SoundLevelButton_state_listening, false))
@@ -153,6 +146,9 @@ public class AIButton extends SoundLevelButton implements AIListener {
                 return busy;
             if (viewAttrs.getBoolean(R.styleable.SoundLevelButton_state_speaking, false))
                 return speaking;
+            if (viewAttrs.getBoolean(R.styleable.SoundLevelButton_state_initializing_tts, false))
+                return initializingTts;
+
             return normal;
         }
     }
@@ -210,14 +206,13 @@ public class AIButton extends SoundLevelButton implements AIListener {
     }
 
     public void startListening() {
+        startListening(null);
+    }
+
+    public void startListening(final RequestExtras requestExtras) {
         if (aiService != null) {
             if (currentState == MicState.normal) {
-                eventsExecutor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        aiService.startListening();
-                    }
-                });
+                aiService.startListening(requestExtras);
             }
         } else {
             throw new IllegalStateException("Call initialize method before usage");
@@ -251,28 +246,13 @@ public class AIButton extends SoundLevelButton implements AIListener {
         if (aiService != null) {
             switch (currentState) {
                 case normal:
-                    eventsExecutor.submit(new Runnable() {
-                        @Override
-                        public void run() {
-                            aiService.startListening();
-                        }
-                    });
+                    aiService.startListening();
                     break;
                 case busy:
-                    eventsExecutor.submit(new Runnable() {
-                        @Override
-                        public void run() {
-                            aiService.cancel();
-                        }
-                    });
+                    aiService.cancel();
                     break;
                 default:
-                    eventsExecutor.submit(new Runnable() {
-                        @Override
-                        public void run() {
-                            aiService.stopListening();
-                        }
-                    });
+                    aiService.stopListening();
                     break;
             }
         }
@@ -294,6 +274,9 @@ public class AIButton extends SoundLevelButton implements AIListener {
                     break;
                 case speaking:
                     mergeDrawableStates(state, STATE_SPEAKING);
+                    break;
+                case initializingTts:
+                    mergeDrawableStates(state, STATE_INITIALIZING_TTS);
                     break;
             }
         }
@@ -322,7 +305,7 @@ public class AIButton extends SoundLevelButton implements AIListener {
         }
     }
 
-    private void changeState(final MicState toState) {
+    protected void changeState(final MicState toState) {
         switch (toState) {
             case normal:
                 stopProcessingAnimation();
@@ -340,10 +323,18 @@ public class AIButton extends SoundLevelButton implements AIListener {
                 stopProcessingAnimation();
                 setDrawSoundLevel(false);
                 break;
+            case initializingTts:
+                stopProcessingAnimation();
+                setDrawSoundLevel(false);
+                break;
         }
 
         currentState = toState;
         refreshDrawableState();
+    }
+
+    protected MicState getCurrentState() {
+        return currentState;
     }
 
     private void startProcessingAnimation() {

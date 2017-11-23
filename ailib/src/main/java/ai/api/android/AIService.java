@@ -1,31 +1,30 @@
-package ai.api;
+/**
+ * Copyright 2017 Google Inc. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
-/***********************************************************************************************************************
- *
- * API.AI Android SDK - client-side libraries for API.AI
- * =================================================
- *
- * Copyright (C) 2015 by Speaktoit, Inc. (https://www.speaktoit.com)
- * https://www.api.ai
- *
- ***********************************************************************************************************************
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
- *
- ***********************************************************************************************************************/
+package ai.api.android;
 
+import android.Manifest;
 import android.content.Context;
 
 import java.util.Collection;
 import java.util.List;
 
+import ai.api.AIListener;
+import ai.api.AIServiceException;
+import ai.api.RequestExtras;
 import ai.api.model.AIContext;
 import ai.api.model.AIError;
 import ai.api.model.AIRequest;
@@ -33,9 +32,11 @@ import ai.api.model.AIResponse;
 import ai.api.model.Entity;
 import ai.api.services.GoogleRecognitionServiceImpl;
 import ai.api.services.SpeaktoitRecognitionServiceImpl;
+import android.content.pm.PackageManager;
+import android.support.v4.content.ContextCompat;
 
 /**
- * Main SDK class fro working with API.AI service.
+ * Main SDK class for working with API.AI service.
  */
 public abstract class AIService {
 
@@ -191,5 +192,14 @@ public abstract class AIService {
      */
     public AIResponse uploadUserEntities(final Collection<Entity> userEntities) throws AIServiceException {
         return aiDataService.uploadUserEntities(userEntities);
+    }
+
+    protected boolean checkPermissions() {
+        boolean granted = true;
+        try {
+            granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        } catch (final Throwable ignored) {
+        }
+        return granted;
     }
 }

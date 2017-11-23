@@ -14,25 +14,18 @@
  * limitations under the License.
  */
 
-package ai.api;
+package ai.api.android;
 
-/**
- * Use this class instead of AIListener if you don't want to process all recognition events. Only onResult and onError required.
- */
-public abstract class DefaultAIListener implements AIListener {
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
-    @Override
-    public void onAudioLevel(final float level) {
+import java.text.SimpleDateFormat;
+import java.util.Locale;
 
+public class GsonFactory {
+
+    public static Gson getGson(){
+        return ai.api.GsonFactory.getDefaultFactory().getGson();
     }
 
-    @Override
-    public void onListeningStarted() {
-
-    }
-
-    @Override
-    public void onListeningFinished() {
-
-    }
 }

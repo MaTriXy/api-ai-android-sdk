@@ -1,25 +1,20 @@
-package ai.api.services;
+/**
+ * Copyright 2017 Google Inc. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
-/***********************************************************************************************************************
- *
- * API.AI Android SDK - client-side libraries for API.AI
- * =================================================
- *
- * Copyright (C) 2015 by Speaktoit, Inc. (https://www.speaktoit.com)
- * https://www.api.ai
- *
- ***********************************************************************************************************************
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
- *
- ***********************************************************************************************************************/
+package ai.api.services;
 
 import android.annotation.TargetApi;
 import android.content.ComponentName;
@@ -33,6 +28,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -40,8 +36,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import ai.api.AIConfiguration;
-import ai.api.AIService;
+import ai.api.android.AIConfiguration;
+import ai.api.android.AIService;
 import ai.api.AIServiceException;
 import ai.api.PartialResultsListener;
 import ai.api.RequestExtras;
@@ -50,26 +46,26 @@ import ai.api.model.AIError;
 import ai.api.model.AIRequest;
 import ai.api.model.AIResponse;
 import ai.api.util.RecognizerChecker;
+import ai.api.util.VersionConfig;
 
 public class GoogleRecognitionServiceImpl extends AIService {
 
     private static final String TAG = GoogleRecognitionServiceImpl.class.getName();
+    private static final long STOP_DELAY = 1000;
 
     private SpeechRecognizer speechRecognizer;
     private final Object speechRecognizerLock = new Object();
-
-    private volatile boolean recognitionActive = false;
-
     private RequestExtras requestExtras;
     private PartialResultsListener partialResultsListener;
+    private final VersionConfig versionConfig;
 
-    private final Handler handler;
-
+    private volatile boolean recognitionActive = false;
     private volatile boolean wasReadyForSpeech;
-    private String googleRecognizerVersion;
 
+    private final Handler handler = new Handler();
+    private Runnable stopRunnable;
 
-    private final Map<Integer, String> errorMessages = new HashMap<Integer, String>();
+    private final Map<Integer, String> errorMessages = new HashMap<>();
 
     {
         errorMessages.put(SpeechRecognizer.ERROR_NETWORK_TIMEOUT, "Network operation timed out.");
@@ -87,19 +83,41 @@ public class GoogleRecognitionServiceImpl extends AIService {
     public GoogleRecognitionServiceImpl(final Context context, final AIConfiguration config) {
         super(config, context);
 
-        final ComponentName googleRecognizerComponent = RecognizerChecker.findGoogleRecognizer(context);
-        if (googleRecognizerComponent == null) {
-            Log.w(TAG, "Google Recognizer application not found on device. Quality of the recognition may be low. Please check if Google Search application installed and enabled.");
+        final ComponentName component = RecognizerChecker.findGoogleRecognizer(context);
+        if (component == null) {
+            Log.w(TAG, "Google Recognizer application not found on device. " +
+                    "Quality of the recognition may be low. Please check if Google Search application installed and enabled.");
         }
 
-        handler = new Handler(context.getMainLooper());
+        versionConfig = VersionConfig.init(context);
+        if (versionConfig.isAutoStopRecognizer()) {
+            stopRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    stopListening();
+                }
+            };
+        }
+    }
 
-        googleRecognizerVersion = RecognizerChecker.getGoogleRecognizerVersion(context);
+    /**
+     * Manage recognizer cancellation runnable.
+     *
+     * @param action (int) (0 - stop, 1 - restart)
+     */
+    private void updateStopRunnable(final int action) {
+        if (stopRunnable != null) {
+            if (action == 0) {
+                handler.removeCallbacks(stopRunnable);
+            } else if (action == 1) {
+                handler.removeCallbacks(stopRunnable);
+                handler.postDelayed(stopRunnable, STOP_DELAY);
+            }
+        }
     }
 
     protected void initializeRecognizer() {
-
-        if (speechRecognizer != null && affectedWithGoogleSearchProblem()) {
+        if (speechRecognizer != null) {
             return;
         }
 
@@ -109,19 +127,14 @@ public class GoogleRecognitionServiceImpl extends AIService {
                 speechRecognizer = null;
             }
 
-            final ComponentName googleRecognizerComponent = RecognizerChecker.findGoogleRecognizer(context);
-
-            if (googleRecognizerComponent == null) {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context);
-            } else {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context, googleRecognizerComponent);
-            }
-
+            final ComponentName component = RecognizerChecker.findGoogleRecognizer(context);
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context, component);
             speechRecognizer.setRecognitionListener(new InternalRecognitionListener());
         }
     }
 
     protected void clearRecognizer() {
+        Log.d(TAG, "clearRecognizer");
         if (speechRecognizer != null) {
             synchronized (speechRecognizerLock) {
                 if (speechRecognizer != null) {
@@ -132,8 +145,7 @@ public class GoogleRecognitionServiceImpl extends AIService {
         }
     }
 
-    private void sendRequest(@NonNull final AIRequest aiRequest) {
-
+    private void sendRequest(@NonNull final AIRequest aiRequest, @Nullable final RequestExtras requestExtras) {
         if (aiRequest == null) {
             throw new IllegalArgumentException("aiRequest must be not null");
         }
@@ -146,8 +158,7 @@ public class GoogleRecognitionServiceImpl extends AIService {
             protected AIResponse doInBackground(final AIRequest... params) {
                 final AIRequest request = params[0];
                 try {
-                    final AIResponse response = aiDataService.request(request);
-                    return response;
+                    return aiDataService.request(request, requestExtras);
                 } catch (final AIServiceException e) {
                     aiError = new AIError(e);
                     return null;
@@ -180,76 +191,91 @@ public class GoogleRecognitionServiceImpl extends AIService {
     @Override
     public void startListening(final RequestExtras requestExtras) {
         if (!recognitionActive) {
-            this.requestExtras = requestExtras;
+            synchronized (speechRecognizerLock) {
+                this.requestExtras = requestExtras;
 
-            final Intent sttIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            sttIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                if (!checkPermissions()) {
+                    final AIError aiError = new AIError("RECORD_AUDIO permission is denied. Please request permission from user.");
+                    onError(aiError);
+                    return;
+                }
 
-            final String language = config.getLanguage().replace('-', '_');
+                initializeRecognizer();
 
-            sttIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
-            sttIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language);
-            sttIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                recognitionActive = true;
 
-            // WORKAROUND for https://code.google.com/p/android/issues/detail?id=75347
-            // TODO Must be removed after fix in Android
-            sttIntent.putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", new String[]{});
+                final Intent sttIntent = createRecognitionIntent();
 
-            runInUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    initializeRecognizer();
-
+                try {
                     wasReadyForSpeech = false;
                     speechRecognizer.startListening(sttIntent);
-                    recognitionActive = true;
+                } catch (final SecurityException e) { //Error occurs only on HTC devices.
                 }
-            });
-
+            }
         } else {
             Log.w(TAG, "Trying to start recognition while another recognition active");
+            if (!wasReadyForSpeech) {
+                cancel();
+            }
         }
+    }
+
+    private Intent createRecognitionIntent() {
+        final Intent sttIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        sttIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+
+        final String language = config.getLanguage().replace('-', '_');
+
+        sttIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
+        sttIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language);
+        sttIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        sttIntent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.getPackageName());
+
+        // WORKAROUND for https://code.google.com/p/android/issues/detail?id=75347
+        sttIntent.putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", new String[]{language});
+        return sttIntent;
     }
 
     @Override
     public void stopListening() {
-        if (recognitionActive) {
-            runInUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (speechRecognizerLock) {
-                        if (recognitionActive) {
-                            if (speechRecognizer != null) {
-                                speechRecognizer.stopListening();
-                            }
-                        }
-                    }
-                }
-            });
-        } else {
-            Log.w(TAG, "Trying to stop listening while not active recognition");
+        synchronized (speechRecognizerLock) {
+            if (speechRecognizer != null) {
+                speechRecognizer.stopListening();
+            }
         }
     }
 
     @Override
     public void cancel() {
-        if (recognitionActive) {
-            runInUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    synchronized (speechRecognizerLock) {
-                        if (recognitionActive) {
-                            recognitionActive = false;
-                            if (speechRecognizer != null) {
-                                speechRecognizer.cancel();
-                            }
-                            onListeningCancelled();
-                        }
-                    }
+        synchronized (speechRecognizerLock) {
+            if (recognitionActive) {
+                recognitionActive = false;
+                if (speechRecognizer != null) {
+                    speechRecognizer.cancel();
                 }
-            });
+                onListeningCancelled();
+            }
+        }
+    }
 
+    private void restartRecognition() {
+        updateStopRunnable(0);
+        recognitionActive = false;
+
+        synchronized (speechRecognizerLock) {
+            try {
+                if (speechRecognizer != null) {
+                    speechRecognizer.cancel();
+
+                    final Intent intent = createRecognitionIntent();
+                    wasReadyForSpeech = false;
+                    speechRecognizer.startListening(intent);
+                    recognitionActive = true;
+                }
+            } catch (Exception e) {
+                stopListening();
+            }
         }
     }
 
@@ -278,21 +304,10 @@ public class GoogleRecognitionServiceImpl extends AIService {
         }
     }
 
-    private void runInUiThread(final Runnable runnable) {
-        handler.post(runnable);
-    }
-
-    /**
-     * Workaround for http://stackoverflow.com/questions/31071650/speechrecognizer-throws-onerror-on-the-first-listening
-     * @return
-     */
-    private boolean affectedWithGoogleSearchProblem() {
-        if (googleRecognizerVersion != null) {
-            if (googleRecognizerVersion.contains("4.7.13.19")) {
-                return true;
-            }
-        }
-        return false;
+    private void stopInternal() {
+        updateStopRunnable(0);
+        if (versionConfig.isDestroyRecognizer()) clearRecognizer();
+        recognitionActive = false;
     }
 
     private class InternalRecognitionListener implements RecognitionListener {
@@ -300,20 +315,19 @@ public class GoogleRecognitionServiceImpl extends AIService {
         @Override
         public void onReadyForSpeech(final Bundle params) {
             if (recognitionActive) {
-                GoogleRecognitionServiceImpl.this.onListeningStarted();
+                onListeningStarted();
             }
             wasReadyForSpeech = true;
         }
 
         @Override
         public void onBeginningOfSpeech() {
-
         }
 
         @Override
         public void onRmsChanged(final float rmsdB) {
             if (recognitionActive) {
-                GoogleRecognitionServiceImpl.this.onAudioLevelChanged(rmsdB);
+                onAudioLevelChanged(rmsdB);
             }
         }
 
@@ -325,23 +339,19 @@ public class GoogleRecognitionServiceImpl extends AIService {
         @Override
         public void onEndOfSpeech() {
             if (recognitionActive) {
-                GoogleRecognitionServiceImpl.this.onListeningFinished();
+                onListeningFinished();
             }
         }
 
         @Override
         public void onError(final int error) {
-
-            // workaround for http://stackoverflow.com/questions/31071650/speechrecognizer-throws-onerror-on-the-first-listening
-            if (error == SpeechRecognizer.ERROR_NO_MATCH
-                    && affectedWithGoogleSearchProblem()
-                    && !wasReadyForSpeech) {
+            if (error == SpeechRecognizer.ERROR_NO_MATCH && !wasReadyForSpeech) {
+                Log.d(TAG, "SpeechRecognizer.ERROR_NO_MATCH, restartRecognition()");
+                restartRecognition();
                 return;
             }
 
             if (recognitionActive) {
-                recognitionActive = false;
-
                 final AIError aiError;
 
                 if (errorMessages.containsKey(error)) {
@@ -353,14 +363,13 @@ public class GoogleRecognitionServiceImpl extends AIService {
 
                 GoogleRecognitionServiceImpl.this.onError(aiError);
             }
+            stopInternal();
         }
 
         @TargetApi(14)
         @Override
         public void onResults(final Bundle results) {
             if (recognitionActive) {
-                recognitionActive = false;
-
                 final ArrayList<String> recognitionResults = results
                         .getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
 
@@ -381,26 +390,18 @@ public class GoogleRecognitionServiceImpl extends AIService {
                         aiRequest.setQuery(recognitionResults.get(0));
                     }
 
-                    if (requestExtras != null) {
-                        if (requestExtras.hasContexts()) {
-                            aiRequest.setContexts(requestExtras.getContexts());
-                        }
-
-                        if (requestExtras.hasEntities()) {
-                            aiRequest.setEntities(requestExtras.getEntities());
-                        }
-                    }
-
                     // notify listeners about the last recogntion result for more accurate user feedback
                     GoogleRecognitionServiceImpl.this.onPartialResults(recognitionResults);
-                    GoogleRecognitionServiceImpl.this.sendRequest(aiRequest);
+                    GoogleRecognitionServiceImpl.this.sendRequest(aiRequest, requestExtras);
                 }
             }
+            stopInternal();
         }
 
         @Override
         public void onPartialResults(final Bundle partialResults) {
             if (recognitionActive) {
+                updateStopRunnable(1);
                 final ArrayList<String> partialRecognitionResults = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (partialRecognitionResults != null && !partialRecognitionResults.isEmpty()) {
                     GoogleRecognitionServiceImpl.this.onPartialResults(partialRecognitionResults);
@@ -410,7 +411,6 @@ public class GoogleRecognitionServiceImpl extends AIService {
 
         @Override
         public void onEvent(final int eventType, final Bundle params) {
-
         }
     }
 
